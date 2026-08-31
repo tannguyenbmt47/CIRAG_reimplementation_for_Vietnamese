@@ -1,0 +1,32 @@
+.env
+.venv/
+.cache/
+outputs/
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite.lock
+data/vimqa/raw/train.json
+data/vimqa/raw/dev.json
+data/vimqa/raw/test.json
+reference/
+models/
+*.egg-info/
+
+# LaTeX build
+report/*.aux
+report/*.log
+report/*.out
+report/*.bbl
+report/*.blg
+report/*.synctex.gz
+*.zip
+
+# Không public
+final_submission/
+2601.06799v1.pdf
+*.docx
+
+# Dữ liệu đầy đủ tái tạo được bằng scripts/prepare_*.py, chỉ giữ mẫu nhỏ
+data/vimqa/processed/vimqa_validation*.json
+data/2wiki/

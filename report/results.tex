@@ -1,0 +1,18 @@
+% Sinh tự động bởi scripts/collect_results.py
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Phương pháp} & \textbf{EM} & \textbf{F1} & \textbf{F1$_{\text{từ}}$} \\
+\midrule
+NativeRAG & 55.20 & 67.95 & 67.23 \\
+IRCoT & 59.00 & 73.27 & 72.27 \\
+ViCiRAG (đầy đủ) & 57.00 & 73.05 & 72.41 \\
+chỉ mức triple & 57.40 & 72.99 & 72.39 \\
+chỉ mức câu & 60.80 & 75.38 & 74.54 \\
+chỉ mức đoạn & 61.20 & 75.16 & 74.52 \\
+triple + câu & 57.00 & 73.03 & 72.38 \\
+triple + đoạn & 56.80 & 72.78 & 72.16 \\
+L = 1 & 52.60 & 67.52 & 66.70 \\
+L = 2 & 57.40 & 73.18 & 72.70 \\
+main\_cirag\_norescue & 50.80 & 66.66 & 66.11 \\
+\bottomrule
+\end{tabular}

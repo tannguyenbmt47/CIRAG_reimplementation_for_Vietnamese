@@ -1,0 +1,15 @@
+{
+  "num_questions": 10,
+  "num_corpus_passages": 96,
+  "num_corpus_sentences": 288,
+  "question_types": {
+    "bridge": 10
+  },
+  "avg_supporting_facts": 1.6,
+  "avg_paragraphs_per_question": 10.0,
+  "avg_sentences_per_paragraph": 2.94,
+  "avg_question_len_tokens": 11.8,
+  "avg_answer_len_tokens": 5.4,
+  "num_yes_no_answers": 3,
+  "pct_answer_in_supporting": 70.0
+}

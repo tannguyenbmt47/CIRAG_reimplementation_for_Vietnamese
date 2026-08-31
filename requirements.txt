@@ -1,0 +1,28 @@
+# --- Lõi pipeline (đủ để chạy ICI + ACMG + đánh giá) ---
+openai>=1.58.0
+tenacity>=8.5.0
+filelock>=3.13.0
+numpy>=1.26.0
+tqdm>=4.66.0
+python-dotenv>=1.0.0
+
+# --- Truy hồi ---
+sentence-transformers>=3.0.0
+torch>=2.2.0
+faiss-cpu>=1.8.0
+rank-bm25>=0.2.2
+
+# --- Xử lý tiếng Việt ---
+underthesea>=6.8.0
+
+# --- Trajectory Distillation (chỉ cần cho Bước 5) ---
+transformers>=4.45.0
+peft>=0.13.0
+trl>=0.12.0
+datasets>=3.0.0
+accelerate>=1.0.0
+bitsandbytes>=0.44.0
+
+# LƯU Ý: cố tình KHÔNG dùng vllm / gritlm / python_igraph / networkx như repo gốc.
+# vllm==0.6.6.post1 pin torch cũ, xung đột với Colab và không cần thiết vì
+# toàn bộ lời gọi LLM đi qua OpenRouter.
