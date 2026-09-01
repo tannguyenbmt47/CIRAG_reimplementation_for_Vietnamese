@@ -140,7 +140,7 @@ LLM_NAME = "google/gemini-2.5-flash"
 
 # Model embedding. Bản đầy đủ (BGE-M3 fine-tune tiếng Việt, ~6GB tải về) cho chất lượng tốt nhất;
 # nếu Colab chật đĩa/VRAM, đổi sang bản nhẹ bên dưới.
-EMBEDDING_NAME = "bkai-foundation-models/vietnamese-bi-encoder"
+EMBEDDING_NAME = "AITeamVN/Vietnamese_Embedding"
 # EMBEDDING_NAME = "bkai-foundation-models/vietnamese-bi-encoder"   # PhoBERT, ~540MB
 
 # Số câu hỏi đánh giá. Để nhỏ khi chạy thử, tăng dần khi đã thông pipeline.
