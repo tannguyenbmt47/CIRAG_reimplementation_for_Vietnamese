@@ -126,6 +126,7 @@ class IterativeConstructionIntegration:
         max_iterations: int = 4,
         max_core_triples: int = 10,
         use_reranker: bool = True,
+        official_rescue: bool = False,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
@@ -136,6 +137,9 @@ class IterativeConstructionIntegration:
         # Repo gốc cắt tập core triple ở 10 (`len_after_rerank=10`).
         self.max_core_triples = max_core_triples
         self.use_reranker = use_reranker
+        #  Hai cơ chế cứu của `rerank_facts_gene_data` trong repo gốc, không có trong bài
+        #  báo: xem `_official_rescue`. Mặc định tắt để giữ đúng Eq. 1 như bài báo mô tả.
+        self.official_rescue = official_rescue
 
         self.base_messages = [
             {"role": "system", "content": INTEGRATION_SYSTEM[lang]},
@@ -161,6 +165,39 @@ class IterativeConstructionIntegration:
                 if candidate_ids[idx] not in matched:
                     matched.append(candidate_ids[idx])
         return matched
+
+    def _official_rescue(
+        self,
+        matched_ids: list[int],
+        thought: str,
+        candidate_ids: list[int],
+        accumulated: dict[Triple, None],
+    ) -> list[int]:
+        """Bổ sung core triple theo đúng `rerank_facts_gene_data` của repo gốc.
+
+        Mô hình nhỏ chưa chưng cất hay nêu đúng triple bắc cầu trong phần suy luận, kiểu
+        `(["a day of roses in august", "directed by", "max mack"])`, rồi vẫn ghi
+        `{"fact": []}`. Đo trên 10 câu 2WikiMQA với Qwen2.5-7B, 6-8 câu rỗng ở vòng đầu, và
+        mất triple bắc cầu thì mọi mức của ACMG đều thiếu bằng chứng. Repo gốc cứu bằng
+        hai bước, giữ nguyên thứ tự ở đây:
+          1. Tập lõi rỗng: lấy triple ứng viên xếp hạng cao nhất chưa có trong tập tích luỹ.
+          2. Mọi cụm `[...]` trong phần suy luận được khớp mờ về triple ứng viên gần nhất
+             (cutoff 0.0 như bản gốc) và thêm vào tập lõi.
+        """
+        ids = list(matched_ids)
+        if not ids:
+            for cid in candidate_ids:
+                if self.retriever.triple_of(cid).triple not in accumulated:
+                    ids.append(cid)
+                    break
+        candidate_texts = [str(tuple(self.retriever.triple_of(i).triple)) for i in candidate_ids]
+        for mention in re.findall(r"\[(.*?)\]", thought):
+            close = difflib.get_close_matches(mention, candidate_texts, n=1, cutoff=0.0)
+            if close:
+                cid = candidate_ids[candidate_texts.index(close[0])]
+                if cid not in ids:
+                    ids.append(cid)
+        return ids
 
     def run(self, question: str, allowed_titles: set[str] | None = None) -> ICIResult:
         result = ICIResult(question=question)
@@ -212,6 +249,10 @@ class IterativeConstructionIntegration:
             matched_ids = self._match_to_candidates(core_triples, candidate_ids)[
                 : self.max_core_triples
             ]
+            if self.official_rescue:
+                matched_ids = self._official_rescue(
+                    matched_ids, thought, candidate_ids, acc_triples
+                )
 
             # ------- Chiếu core triple về câu và đoạn nguồn (Eq. 3-4) -------
             for triple_id in matched_ids:

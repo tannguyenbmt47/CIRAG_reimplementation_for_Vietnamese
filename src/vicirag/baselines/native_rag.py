@@ -52,7 +52,11 @@ class NativeRAG:
         )
 
         response, _, _ = self.llm.infer(messages)
-        answer = reanswer(self.llm, question, response) if self.use_reanswer else extract_answer(response)
+        answer = (
+            reanswer(self.llm, question, response, lang=self.lang)
+            if self.use_reanswer
+            else extract_answer(response)
+        )
         return {
             "predicted_answer": answer,
             "retrieved_titles": titles,

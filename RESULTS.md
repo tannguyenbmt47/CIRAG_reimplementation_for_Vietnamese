@@ -310,6 +310,11 @@ cỡ kho ngữ liệu:
 
 Lệch dưới 1 điểm ở cả hai chỉ số. Bản cài đặt tái lập được lợi thế mà bài báo gốc công bố.
 
+> **Lưu ý bổ sung.** Lần chạy CIRAG này bật mức dự phòng `retrieved` (20% số câu trả lời đến
+> từ mức đó, vốn không có trong bài báo) và rút gọn đáp án tiếng Anh bằng prompt tiếng Việt,
+> nên con số 54,00 không phải CIRAG đúng Eq. 6. Phép so sánh đúng cấu hình nằm ở phụ lục
+> *Tái lập local, bám mã nguồn gốc* cuối file.
+
 ## Ý nghĩa cho toàn bộ báo cáo
 
 Cùng một dòng mã, hai thiết lập:
@@ -504,3 +509,134 @@ Ba điều đọc được:
    nghẽn đã chuyển sang khâu suy luận.
 
 Chi phí ba lần chạy Qwen3: **$0,28**.
+
+---
+
+# Phụ lục: tái lập local, bám mã nguồn gốc
+
+## Mục đích
+
+Phép thử tái lập ở phụ lục đầu có hai lỗ hổng: CIRAG chạy kèm mức dự phòng không có trong bài
+báo, và đáp án tiếng Anh được rút gọn bằng prompt tiếng Việt. Phụ lục này chạy lại trên đúng
+100 câu đó với cấu hình gần bài báo nhất có thể, hoàn toàn local, và đối chiếu thêm Bảng 3.
+
+## Thiết lập
+
+| | |
+|---|---|
+| Dữ liệu | 2WikiMultihopQA, đúng 100 câu của phép thử cũ (seed 42), kho 770 đoạn |
+| Mô hình nền | Qwen2.5-7B-Instruct, lượng tử hoá Q8_0, qua Ollama, giải mã tham lam; dùng cho mọi khâu kể cả trích triple |
+| Retriever | `BAAI/bge-small-en-v1.5`, retriever ở Bảng 6 của bài báo |
+| Bám mã nguồn gốc | triple chữ thường, bỏ ký tự đặc biệt; N = 10 triple ứng viên; cơ chế cứu tập core triple |
+| Prompt | prompt tiếng Anh của tác giả; rút gọn đáp án bằng prompt tiếng Anh |
+| CIRAG | đúng Eq. 6, không mức dự phòng (`--no-passage-fallback`) |
+| Chi phí | $0, một GPU 12GB |
+
+Chạy lại: `scripts/run_local_2wiki.sh`, đối chiếu: `scripts/compare_local_2wiki.py`.
+
+## Năm chỗ phải sửa trước khi con số có nghĩa
+
+Lần chạy thử đầu cho CIRAG 0/10 câu đúng. Lần theo nguyên nhân thì gặp năm chỗ, ba chỗ thuộc
+về chính bài báo và mã nguồn gốc:
+
+| | Phát hiện | Bằng chứng |
+|---|---|---|
+| 1 | **Mã nguồn gốc có hai cơ chế cứu tập core triple mà bài báo không nhắc tới.** Hàm `rerank_facts_gene_data` vớt mọi triple mô hình trích trong phần suy luận, và lấy ứng viên đầu bảng khi tập lõi vẫn rỗng | Qwen2.5-7B ghi `{"fact": []}` ở 6/10 câu ngay vòng đầu, thường sau khi đã nêu đúng triple bắc cầu trong suy luận. Trên 10 câu thử: không có cơ chế này (Q4, N = 30), 9/10 câu rơi vào default và EM = 0; có cơ chế này và N = 10 (Q8), còn 5/10 câu default và EM = 40 |
+| 2 | **Mã nguồn đưa 10 triple ứng viên vào LLM**, dù phụ lục B.4 ghi N = 30 | `candidate_facts[:10]` trong cùng hàm |
+| 3 | **Bản port rút gọn demo của prompt Integration** so với `filter.json`, dù chú thích ghi là chép nguyên văn | Chạy đúng prompt gốc không tốt hơn: 8/10 câu rỗng ở vòng đầu, so với 6/10 |
+| 4 | **Ollama mặc định phạt lặp 1.1**, áp cả khi temperature = 0. Bước Integration phải chép triple, vốn lặp tên thực thể | Vòng ICI đầu trên 10 câu: tổng 7 triple khi phạt, 40 khi tắt |
+| 5 | **Bước rút gọn đáp án luôn dùng prompt tiếng Việt**, dặn trả "đúng"/"không" cho câu hỏi đúng/sai, kể cả với dữ liệu tiếng Anh | Đã thêm prompt tiếng Anh, chỉ dùng khi `--lang en` |
+
+Lượng tử hoá **không** phải nguyên nhân: Q4_K_M và Q8_0 cho đúng cùng 6/10 câu rỗng ở vòng
+ICI đầu. Cơ chế cứu và N = 10 là cờ riêng (`--official-rescue`, `--top-n 10`), mặc định tắt,
+nên các kết quả ViMQA ở trên không đổi.
+
+## Kết quả
+
+| | Của chúng tôi | Bài báo | Chênh |
+|---:|---:|---:|---:|
+| CIRAG *w/o TD*, EM | **48,0** | 49,8 | −1,8 |
+| CIRAG *w/o TD*, F1 | 52,9 | 59,7 | −6,8 |
+| IRCoT, EM | 28,0 | 36,4 (35,9 với bge-small, Bảng 6) | −8,4 |
+| IRCoT, F1 | 31,6 | 45,7 (44,8) | −14,1 |
+| CIRAG − IRCoT, EM | +20,0 | +13,4 | |
+
+**EM của CIRAG lệch 1,8 điểm, dưới sai số chuẩn khoảng 5 điểm ở n = 100.** Lần này là CIRAG
+đúng Eq. 6, không có mức dự phòng.
+
+IRCoT thấp hơn bài báo 8,4 điểm, nên khoảng cách +20,0 (McNemar: 28 câu chỉ CIRAG đúng, 8 câu
+chỉ IRCoT đúng, p = 0,001) bị phóng đại và **không** nên dùng làm phép so với +13,4. Nguyên
+nhân nằm ở IRCoT của repo: bản zero-shot rút gọn, trong khi bài báo dùng bản của DualRAG có
+few-shot. Qwen2.5-7B viết "So the answer is: the passage does not provide…" ngay bước đầu ở
+62/100 câu, cụm "so the answer is" kích hoạt điều kiện dừng, và 49 câu ra "No answer". EM của
+IRCoT ở các câu dừng sau 1 bước chỉ 16,1, so với 45,2 ở các câu chạy 2 bước.
+
+Theo loại câu hỏi, CIRAG hơn IRCoT ở cả bốn loại:
+
+| Loại | n | CIRAG | IRCoT | CIRAG rơi vào default |
+|---|---:|---:|---:|---:|
+| bridge_comparison | 31 | 54,8 | 32,3 | 10 |
+| comparison | 14 | 92,9 | 85,7 | 1 |
+| compositional | 45 | 33,3 | 13,3 | 14 |
+| inference | 10 | 30,0 | 0,0 | 2 |
+
+## Bảng 3 tái lập được về thứ tự
+
+Bảng 3 của bài báo dùng CIRAG có TD nên chỉ so được thứ tự và độ chênh.
+
+| Biến thể | EM | Δ so với đầy đủ | p | Δ bài báo (có TD) |
+|---|---:|---:|---:|---:|
+| Cascade đầy đủ | **48,0** | | | |
+| w/o Triple (câu → đoạn) | 44,0 | −4,0 | 0,39 | −0,1 |
+| w/o Passage (triple → câu) | 41,0 | −7,0 | 0,016 | −1,4 |
+| chỉ đoạn | 40,0 | −8,0 | 0,12 | −5,7 |
+| chỉ câu | 36,0 | −12,0 | 0,012 | −2,4 |
+| chỉ triple | 34,0 | −14,0 | <0,001 | −4,2 |
+
+Hai nhận định chính của bài báo về Bảng 3 đúng trên thiết lập này: cascade đầy đủ tốt nhất,
+và mọi cascade hai mức (41, 44) hơn mọi biến thể một mức (34, 36, 40). Độ chênh lớn hơn bài
+báo vì không có TD thì nhiều câu rơi vào default hơn.
+
+Nhận định thứ ba **không** tái lập được: bài báo viết rằng trên 2WikiMQA, dùng riêng mức đoạn
+kém nhất vì ngữ cảnh dài gây nhiễu (53,2 so với 54,7 và 56,5). Ở đây chỉ mức đoạn lại tốt nhất
+trong ba biến thể một mức (40 so với 36 và 34), dù chênh lệch với chỉ mức triple không có ý
+nghĩa thống kê (p = 0,36).
+
+Kết quả này **ngược hẳn** ViMQA với Gemini 2.5 Flash (§2.4), nơi mọi biến thể một mức đều
+thắng mọi biến thể cascade. Cùng một mã nguồn, cascade có lợi khi mô hình nền yếu và chịu từ
+chối, và có hại khi mô hình nền mạnh và hiếm khi từ chối. Đây là bằng chứng trực tiếp cho
+chẩn đoán ở §2.4 rằng điều kiện đủ dựa trên lời từ chối chỉ đúng với mô hình nền yếu.
+
+## Mức dự phòng và điều kiện đủ đề xuất trên thiết lập gốc
+
+| Cấu hình | EM | so với cấu hình trên |
+|---|---:|---|
+| CIRAG đúng Eq. 6 | 48,0 | |
+| + mức dự phòng | 54,0 | +6,0 (6 câu chỉ bản này đúng, 0 câu ngược lại, p = 0,031) |
+| + điều kiện đủ theo số nguồn | 54,0 | 0 (không câu nào khác kết quả) |
+
+Mức dự phòng được dùng ở 8 câu, cứu đúng 6. Điều kiện đủ theo số nguồn **không tác động gì**
+trên thiết lập này. Điều đó khớp với chẩn đoán của phần cải tiến: phép kiểm bằng chứng sửa
+trường hợp mô hình trả lời dù bằng chứng thiếu. Qwen2.5-7B vốn sẵn sàng từ chối, nên `Suf(a)`
+gốc đã làm đúng việc của nó, và phép kiểm mới không còn gì để sửa.
+
+## Phân bố mức ngữ cảnh
+
+| Mức | Của chúng tôi | Hình 5, *w/o TD* (đọc từ biểu đồ, ±3) |
+|---|---:|---:|
+| triple | 53% | ≈39% |
+| câu | 12% | ≈18% |
+| đoạn | 8% | ≈23% |
+| default | 27% | ≈20% |
+
+Cùng hình dạng (triple chiếm đa số, default đáng kể), nhưng của chúng tôi nghiêng về triple
+và ít dùng mức đoạn hơn.
+
+## Giới hạn
+
+- n = 100, sai số chuẩn của EM khoảng 5 điểm.
+- Q8_0 thay cho bản không lượng tử hoá; bge-small-en-v1.5 là retriever của Bảng 6, còn Bảng 2
+  nhiều khả năng dùng NV-Embed-v2.
+- N = 10 và cơ chế cứu theo mã nguồn, không theo bài báo. Mã nguồn được công bố có thể không
+  trùng với phiên bản đã sinh ra con số trong bài báo.
+- Phép so với IRCoT chưa dùng được cho tới khi có IRCoT few-shot như bài báo.

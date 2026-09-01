@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from vicirag.acmg import extract_answer, is_refusal  # noqa: E402
+from vicirag.acmg import extract_answer, is_refusal, reanswer  # noqa: E402
 from vicirag.eval.vi_metrics import (  # noqa: E402
     evaluate,
     exact_match,
@@ -19,7 +19,13 @@ from vicirag.eval.vi_metrics import (  # noqa: E402
     normalize_answer,
 )
 from vicirag.ici import parse_integration_output  # noqa: E402
-from vicirag.openie import _extract_json, map_triple_to_sentences  # noqa: E402
+from vicirag.data import TripleRecord  # noqa: E402
+from vicirag.openie import (  # noqa: E402
+    _extract_json,
+    map_triple_to_sentences,
+    normalize_triples_official,
+    official_text_processing,
+)
 
 
 # ------------------------------------------------------------ chuẩn hoá đáp án
@@ -164,6 +170,24 @@ def test_map_triple_to_sentences_fallback_never_loses_provenance():
     assert ids == [0]
 
 
+def test_official_triple_norm_matches_paper_and_keeps_provenance():
+    records = {
+        "God's Gift to Women": [
+            TripleRecord(("God's Gift to Women", "directed by", "Michael Curtiz"),
+                         "God's Gift to Women", [0]),
+            # Trùng với triple trên sau chuẩn hoá -> bị bỏ.
+            TripleRecord(("god's gift to women", "Directed By", "michael curtiz"),
+                         "God's Gift to Women", [1]),
+            # Thành phần rỗng sau chuẩn hoá -> bị bỏ.
+            TripleRecord(("God's Gift to Women", "is", "!!!"), "God's Gift to Women", [0]),
+        ]
+    }
+    out = normalize_triples_official(records)["God's Gift to Women"]
+    assert [r.triple for r in out] == [("god s gift to women", "directed by", "michael curtiz")]
+    assert out[0].sentence_ids == [0]  # provenance tính từ triple gốc, không đổi
+    assert official_text_processing("Aldri annet enn bråk") == "aldri annet enn br k"
+
+
 def test_map_triple_unrelated_returns_empty():
     sentences = ["Hoàn toàn không liên quan gì cả."]
     ids = map_triple_to_sentences(("Paris", "là thủ đô của", "Pháp"), sentences)
@@ -183,6 +207,20 @@ def test_extract_answer():
     assert extract_answer("Suy luận: abc.\nĐáp án: Hà Nội.") == "Hà Nội"
     assert extract_answer("Thought: xyz\nAnswer: 1824") == "1824"
     assert extract_answer("Hà Nội") == "Hà Nội"
+
+
+def test_reanswer_prompt_follows_data_language():
+    class _CaptureLLM:
+        def infer(self, messages, **kwargs):
+            self.messages = messages
+            return "x", {}, False
+
+    llm = _CaptureLLM()
+    reanswer(llm, "Who directed it?", "Answer: Michael Curtiz", lang="en")
+    assert llm.messages[-1]["content"].startswith("Question: Who directed it?")
+    # en-vi = prompt tiếng Anh trên dữ liệu tiếng Việt: đáp án vẫn rút gọn theo tiếng Việt.
+    reanswer(llm, "Ai đạo diễn?", "Đáp án: Michael Curtiz", lang="en-vi")
+    assert llm.messages[-1]["content"].startswith("Câu hỏi: Ai đạo diễn?")
 
 
 def test_extract_json_from_fence():

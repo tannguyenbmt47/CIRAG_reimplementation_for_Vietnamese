@@ -87,7 +87,7 @@ class IRCoT:
                 raw = sentence.replace("Vậy đáp án là:", "Đáp án:")
                 return {
                     "predicted_answer": (
-                        reanswer(self.llm, question, raw) if self.use_reanswer
+                        reanswer(self.llm, question, raw, lang=self.lang) if self.use_reanswer
                         else extract_answer(raw)
                     ),
                     "retrieved_titles": all_titles,
@@ -99,7 +99,8 @@ class IRCoT:
         last = reasoning[-1] if reasoning else ""
         return {
             "predicted_answer": (
-                reanswer(self.llm, question, last) if (self.use_reanswer and last)
+                reanswer(self.llm, question, last, lang=self.lang)
+                if (self.use_reanswer and last)
                 else extract_answer(last)
             ),
             "retrieved_titles": all_titles,
