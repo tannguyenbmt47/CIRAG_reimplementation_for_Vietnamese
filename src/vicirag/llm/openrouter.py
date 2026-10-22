@@ -4,6 +4,9 @@ Cơ chế cache SQLite + retry được port từ repo gốc
 (`reference/CIRAG-official/src/cirag/llm/qwen_gpt.py`). Cache là thứ giữ chi phí
 API xuống: khoá là sha256 của {messages, model, seed, temperature}, nên chạy lại
 cùng một cấu hình gần như miễn phí và các ablation dùng chung phần OpenIE.
+
+Client dùng được với mọi server theo giao thức OpenAI, kể cả Ollama chạy local
+(`base_url=http://localhost:11434/v1`).
 """
 
 from __future__ import annotations
@@ -33,15 +36,24 @@ class TokenUsage:
     completion_tokens: int = 0
     num_calls: int = 0
     num_cache_hits: int = 0
+    #  Prompt dài nhất đã gửi, và số lời gọi có thể đã vượt cửa sổ ngữ cảnh (xem
+    #  `OpenRouterLLM.context_window`). Chỉ có nghĩa khi chạy model local.
+    max_prompt_tokens: int = 0
+    num_context_at_risk: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def add(self, prompt_tokens: int, completion_tokens: int, cache_hit: bool) -> None:
+    def add(
+        self, prompt_tokens: int, completion_tokens: int, cache_hit: bool, at_risk: bool = False
+    ) -> None:
         with self._lock:
             self.prompt_tokens += prompt_tokens
             self.completion_tokens += completion_tokens
             self.num_calls += 1
             if cache_hit:
                 self.num_cache_hits += 1
+            self.max_prompt_tokens = max(self.max_prompt_tokens, prompt_tokens)
+            if at_risk:
+                self.num_context_at_risk += 1
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -49,12 +61,15 @@ class TokenUsage:
             "completion_tokens": self.completion_tokens,
             "num_calls": self.num_calls,
             "num_cache_hits": self.num_cache_hits,
+            "max_prompt_tokens": self.max_prompt_tokens,
+            "num_context_at_risk": self.num_context_at_risk,
         }
 
     def reset(self) -> None:
         with self._lock:
             self.prompt_tokens = self.completion_tokens = 0
             self.num_calls = self.num_cache_hits = 0
+            self.max_prompt_tokens = self.num_context_at_risk = 0
 
 
 def cache_response(func):
@@ -126,12 +141,20 @@ class OpenRouterLLM:
         max_new_tokens: int | None = 2048,
         seed: int = 0,
         usage: TokenUsage | None = None,
+        context_window: int | None = None,
     ) -> None:
         self.model = model
         self.temperature = temperature
         self.max_new_tokens = max_new_tokens
         self.seed = seed
         self.usage = usage if usage is not None else TokenUsage()
+        #  Cửa sổ ngữ cảnh của server local (num_ctx của Ollama). Ollama không báo lỗi
+        #  khi prompt dài quá mà lặng lẽ bỏ các lượt hội thoại cũ nhất, tức bỏ chính
+        #  phần demo và lịch sử H<t của ICI. `prompt_tokens` trả về khi đó chỉ đếm phần
+        #  còn lại nên không dùng để phát hiện được. Thay vào đó đánh dấu mọi prompt dài
+        #  hơn 2 ký tự/token nhân cửa sổ: văn bản tiếng Anh luôn trên 2 ký tự/token, nên
+        #  `num_context_at_risk == 0` bảo đảm không prompt nào bị cắt.
+        self.context_window = context_window
 
         api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
@@ -171,7 +194,14 @@ class OpenRouterLLM:
     def infer(self, messages: list[TextChatMessage], **kwargs) -> tuple[str, dict[str, Any], bool]:
         """Trả về (nội dung, metadata, có phải cache hit)."""
         content, metadata, cache_hit = self._call(messages, **kwargs)
+        at_risk = False
+        if self.context_window:
+            num_chars = sum(len(m.get("content") or "") for m in messages)
+            at_risk = num_chars > 2 * self.context_window
         self.usage.add(
-            metadata.get("prompt_tokens", 0), metadata.get("completion_tokens", 0), cache_hit
+            metadata.get("prompt_tokens", 0),
+            metadata.get("completion_tokens", 0),
+            cache_hit,
+            at_risk=at_risk,
         )
         return content, metadata, cache_hit

@@ -89,6 +89,44 @@ def map_triple_to_sentences(triple: tuple[str, str, str], sentences: list[str]) 
     return [best_idx] if best_score > 0 else []
 
 
+def official_text_processing(text: str) -> str:
+    """Chuẩn hoá triple đúng như `text_processing` trong `utils/misc_utils.py` của repo gốc.
+
+    Chữ thường, thay mọi ký tự không phải chữ cái Latin, chữ số hay khoảng trắng bằng
+    khoảng trắng: "God's Gift to Women" -> "god s gift to women", đúng dạng triple trong
+    ví dụ ở Bảng 7 của bài báo. Chỉ dùng được cho tiếng Anh vì xoá sạch dấu tiếng Việt.
+    """
+    return re.sub(r"[^A-Za-z0-9 ]", " ", text.lower()).strip()
+
+
+def normalize_triples_official(
+    triples_by_title: dict[str, list[TripleRecord]],
+) -> dict[str, list[TripleRecord]]:
+    """Áp `official_text_processing` lên mọi triple, giữ nguyên provenance.
+
+    `sentence_ids` đã tính từ triple gốc lúc trích nên không đổi. Bỏ triple có thành phần
+    rỗng sau chuẩn hoá và triple trùng nhau trong cùng một đoạn.
+    """
+    result: dict[str, list[TripleRecord]] = {}
+    for title, records in triples_by_title.items():
+        seen: set[tuple[str, str, str]] = set()
+        kept: list[TripleRecord] = []
+        for record in records:
+            triple = tuple(official_text_processing(x) for x in record.triple)
+            if not all(triple) or triple in seen:
+                continue
+            seen.add(triple)  # type: ignore[arg-type]
+            kept.append(
+                TripleRecord(
+                    triple=triple,  # type: ignore[arg-type]
+                    passage_title=record.passage_title,
+                    sentence_ids=record.sentence_ids,
+                )
+            )
+        result[title] = kept
+    return result
+
+
 class OpenIEExtractor:
     """Trích triple cho toàn corpus, có cache trên đĩa."""
 

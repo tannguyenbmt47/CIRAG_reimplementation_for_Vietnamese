@@ -74,6 +74,55 @@ PYTHONPATH=src .venv/bin/python scripts/collect_results.py
 | `--it N` | Maximum ICI rounds (default 4) |
 | `--llm-name`, `--openie-llm-name` | Change the reasoning model and the triple extraction model |
 | `--lang {vi,en,en-vi}` | Prompt language, used for the reproduction run on 2WikiMQA |
+| `--llm-base-url URL` | Any OpenAI-compatible server, e.g. Ollama at `http://localhost:11434/v1`; no API key needed for a local server |
+| `--context-window N` | The local server's `num_ctx`; the run then counts prompts long enough to risk being cut |
+| `--embedding-max-length N` | Encoder input limit; `BAAI/bge-small-en-v1.5` accepts at most 512 |
+| `--triple-norm official` | Lowercase triples and strip non-alphanumerics, as the official code does; English only, since it erases Vietnamese diacritics |
+| `--official-rescue` | Refill an empty core triple set the way the official code does (not described in the paper) |
+
+## Running locally, at no cost
+
+[`scripts/run_local_2wiki.sh`](scripts/run_local_2wiki.sh) reruns the 2WikiMultihopQA
+reproduction and the cascade ablation of the original paper's Table 3 on one 12 GB GPU, with no
+API calls: Qwen2.5-7B-Instruct (Q8_0) through Ollama for every stage, `BAAI/bge-small-en-v1.5`,
+the retriever of the paper's Table 6, and triples normalised the way the official code does.
+
+```bash
+ollama pull qwen2.5:7b-instruct-q8_0
+ollama create qwen2.5-7b-instruct-q8-greedy -f scripts/ollama/qwen2.5-7b-q8-greedy.Modelfile
+OLLAMA_NUM_PARALLEL=1 OLLAMA_FLASH_ATTENTION=1 ollama serve
+python scripts/prepare_2wiki.py --limit 100
+bash scripts/run_local_2wiki.sh     # LIMIT=10 for a quick trial
+```
+
+Three Ollama settings change the results, and the Modelfile sets each one:
+
+- **Context window.** Ollama's default is a few thousand tokens, and it drops the oldest turns
+  of a longer prompt without any error, which silently removes the ICI demos and history. The
+  Modelfile sets 16k, the most that keeps the Q8 model on a 12 GB card; the longest prompt on
+  2WikiMQA is about 4.7k tokens. `--context-window` counts prompts at risk of being cut.
+- **Repetition penalty.** Ollama applies a penalty of 1.1 by default, even at temperature 0.
+  The Integration step copies triples word for word, and those repeat entity names, so the
+  penalty hits exactly that step: on 10 2WikiMQA questions the first ICI round kept 7 triples
+  in total with the penalty and 40 without it. The paper decodes greedily, with no penalty.
+- **Quantisation.** The paper serves Qwen unquantised through vLLM, so the script uses Q8_0,
+  the closest build that fits. It made no difference to the problem below: Q4_K_M and Q8_0
+  left the first ICI round empty on the same 6 of 10 trial questions.
+
+The script also follows the official code in two places where it differs from the paper, since
+the code produced the paper's numbers:
+
+- **`--official-rescue`.** Qwen2.5-7B often names the bridging triple in its reasoning, as in
+  `(["a day of roses in august", "directed by", "max mack"])`, and then writes `{"fact": []}`.
+  Losing that triple leaves every ACMG level without evidence: plain CIRAG fell back to the
+  default branch on 9 of 10 trial questions. The official `rerank_facts_gene_data` recovers
+  every triple cited in brackets in the reasoning, and takes the top candidate when the core
+  set is still empty. Neither step appears in the paper.
+- **`--top-n 10`.** The official code passes 10 candidate triples to the LLM, although
+  Appendix B.4 of the paper gives N = 30.
+
+The LLM cache is keyed by model name, not by sampling settings, so the Modelfile gets a new model
+name whenever its parameters change.
 
 ## Notebook
 
@@ -115,7 +164,7 @@ src/vicirag/
   llm/openrouter.py OpenRouter client with a per-model SQLite cache
 
 scripts/            data preparation, experiment runner, result tables, figures
-tests/              38 tests, no GPU and no API calls
+tests/              42 tests, no GPU and no API calls
 report/             the two report PDFs, Vietnamese and English
 ```
 

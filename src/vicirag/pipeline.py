@@ -27,7 +27,7 @@ from .embedding.vi_encoder import VietnameseEncoder
 from .eval.vi_metrics import evaluate, retrieval_recall
 from .ici import IterativeConstructionIntegration
 from .llm.openrouter import OpenRouterLLM, TokenUsage
-from .openie import OpenIEExtractor
+from .openie import OpenIEExtractor, normalize_triples_official
 from .retriever import Retriever
 
 #  Ánh xạ cờ --ab của repo gốc sang chuỗi mức ngữ cảnh của ACMG.
@@ -70,6 +70,7 @@ class ViCiRAG:
             max_new_tokens=config.max_new_tokens,
             seed=config.seed,
             usage=self.usage,
+            context_window=config.context_window,
         )
 
         #  Integrator K_D dùng chung LLM với các khâu khác. Bài báo gốc thay riêng
@@ -97,6 +98,7 @@ class ViCiRAG:
                 max_new_tokens=config.max_new_tokens,
                 seed=config.seed,
                 usage=self.usage,
+                context_window=config.context_window,
             )
         )
         openie_tag = openie_model.replace("/", "_").replace(":", "_")
@@ -107,6 +109,10 @@ class ViCiRAG:
             self.openie_llm, lang=lang, cache_path=openie_cache, num_workers=config.num_workers
         )
         triples_by_title = extractor.run(self.corpus, force=config.force_openie_from_scratch)
+        if config.triple_norm == "official":
+            #  Cache OpenIE vẫn giữ triple nguyên văn; chuẩn hoá ở đây để bật/tắt được
+            #  mà không phải trích lại.
+            triples_by_title = normalize_triples_official(triples_by_title)
 
         encoder = VietnameseEncoder(
             model_name=config.embedding_model_name,
@@ -132,6 +138,7 @@ class ViCiRAG:
             top_n=config.num_candidate_triples,
             max_iterations=config.max_iterations,
             use_reranker=config.use_triple_reranker,
+            official_rescue=config.official_rescue,
         )
         self.acmg = AdaptiveCascadedGeneration(
             llm=self.llm,
@@ -221,6 +228,7 @@ class ViCiRAG:
             "dataset": self.config.dataset,
             "split": self.config.split,
             "llm": self.config.llm_name,
+            "llm_base_url": self.config.llm_base_url,
             "integrator": getattr(self.integrator_llm, "model_name", self.config.llm_name),
             "embedding": self.config.embedding_model_name,
             "num_questions": len(results),
@@ -229,6 +237,9 @@ class ViCiRAG:
             "min_source_docs": self.config.min_source_docs,
             "passage_fallback": self.config.passage_fallback,
             "use_reranker": self.config.use_triple_reranker,
+            "triple_norm": self.config.triple_norm,
+            "official_rescue": self.config.official_rescue,
+            "num_candidate_triples": self.config.num_candidate_triples,
             "use_hybrid_retrieval": self.config.use_hybrid_retrieval,
             "metrics": overall,
             "granularity_distribution": dict(Counter(r["granularity"] for r in results)),
@@ -261,6 +272,9 @@ class ViCiRAG:
         print(f"  Số vòng TB      {summary['avg_steps']}")
         print(f"  Thời gian/câu   {summary['seconds_per_question']}s")
         print(f"  Token           {self.usage.to_dict()}")
+        if self.usage.num_context_at_risk:
+            print(f"  CẢNH BÁO: {self.usage.num_context_at_risk} lời gọi có prompt dài hơn "
+                  f"2 x {self.config.context_window} ký tự, có thể đã bị server cắt")
         print(f"\nĐã ghi kết quả vào {out_dir}/")
         return summary
 
@@ -269,18 +283,23 @@ def build_config_from_args(args: argparse.Namespace) -> Config:
     config = Config(
         dataset=args.dataset,
         split=args.split,
+        llm_base_url=args.llm_base_url,
         llm_name=args.llm_name,
+        context_window=args.context_window,
         max_iterations=args.it,
         retrieval_top_k=args.top_k,
         num_candidate_triples=args.top_n,
         granularity_cascade=AB_TO_CASCADE[args.ab],
         use_triple_reranker=not args.no_reranker,
+        triple_norm=args.triple_norm,
+        official_rescue=args.official_rescue,
         min_source_docs=args.min_source_docs,
         passage_fallback=not args.no_passage_fallback,
         use_hybrid_retrieval=args.hybrid,
         force_openie_from_scratch=args.force_openie,
         num_workers=args.workers,
         embedding_model_name=args.embedding_name,
+        embedding_max_length=args.embedding_max_length,
         openie_llm_name=args.openie_llm_name,
     )
     config.extra["candidate_scope"] = args.candidate_scope
@@ -307,14 +326,30 @@ def main() -> int:
     parser.add_argument("--openie-llm-name", dest="openie_llm_name",
                         default="google/gemini-2.5-flash-lite",
                         help="Model riêng cho trích triple hàng loạt (rẻ hơn)")
+    parser.add_argument("--llm-base-url", dest="llm_base_url",
+                        default="https://openrouter.ai/api/v1",
+                        help="Server theo giao thức OpenAI. Chạy local bằng Ollama: "
+                             "http://localhost:11434/v1 (khi đó không cần OPENROUTER_API_KEY)")
+    parser.add_argument("--context-window", dest="context_window", type=int, default=None,
+                        help="num_ctx của server local, để phát hiện prompt có thể bị cắt")
     parser.add_argument("--embedding-name", dest="embedding_name",
                         default="AITeamVN/Vietnamese_Embedding")
+    parser.add_argument("--embedding-max-length", dest="embedding_max_length", type=int,
+                        default=1024,
+                        help="Độ dài tối đa của encoder. bge-small-en-v1.5 chỉ nhận tới 512")
     parser.add_argument("--it", type=int, default=4, help="Số vòng ICI tối đa L")
     parser.add_argument("--top-k", dest="top_k", type=int, default=10, help="K đoạn/vòng")
     parser.add_argument("--top-n", dest="top_n", type=int, default=30, help="N triple ứng viên")
     parser.add_argument("--ab", default="", choices=sorted(AB_TO_CASCADE.keys()),
                         help="Ablation mức ngữ cảnh (Table 3)")
     parser.add_argument("--no-reranker", action="store_true", help="Ablation w/o reranker")
+    parser.add_argument("--official-rescue", dest="official_rescue", action="store_true",
+                        help="Cứu tập core triple như mã nguồn gốc: lấy ứng viên đầu khi rỗng, "
+                             "và vớt triple được trích trong phần suy luận")
+    parser.add_argument("--triple-norm", dest="triple_norm", default="none",
+                        choices=["none", "official"],
+                        help="official = chữ thường, bỏ ký tự đặc biệt như repo gốc "
+                             "(chỉ cho tiếng Anh)")
     parser.add_argument("--no-passage-fallback", dest="no_passage_fallback",
                         action="store_true",
                         help="Bỏ mức dự phòng, lấy đúng hành vi Eq. 6 của bài báo gốc")

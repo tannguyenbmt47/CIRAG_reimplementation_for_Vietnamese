@@ -1,0 +1,25 @@
+# Qwen2.5-7B-Instruct, lượng tử hoá Q8_0, giải mã tham lam, cửa sổ ngữ cảnh 16k.
+#
+# Q8_0: bài báo chạy Qwen bằng vLLM, không lượng tử hoá, và Q8_0 là bản gần nhất còn vừa
+# 12GB. Đã đo: Q4_K_M và Q8_0 cho đúng cùng 6/10 câu rỗng ở vòng ICI đầu trên 2WikiMQA,
+# nên lượng tử hoá không phải nguyên nhân của hiện tượng đó (xem --official-rescue).
+#
+# num_ctx: cửa sổ mặc định của Ollama chỉ vài nghìn token, và prompt dài hơn bị cắt mà
+# không báo lỗi: Ollama bỏ các lượt hội thoại cũ nhất, tức bỏ chính demo và lịch sử của
+# ICI. 16k là mức lớn nhất để bản Q8 (8,1GB) vẫn nằm trọn trên GPU 12GB; prompt dài nhất
+# đo được trên 2WikiMQA là 4,7k token. Cờ --context-window của pipeline đếm số prompt có
+# nguy cơ vượt mức này.
+#
+# repeat_penalty: Ollama mặc định phạt lặp 1.1 trên 64 token gần nhất, và runner
+# llama.cpp áp phạt này cả khi temperature = 0. Bước Integration chép triple vốn lặp tên
+# thực thể liên tục nên bị phạt nặng: với bản Q4 trên 10 câu, vòng ICI đầu giữ tổng 7
+# triple khi phạt 1.1, so với 40 triple khi tắt. Bài báo giải mã tham lam không phạt lặp.
+#
+# Dựng:  ollama create qwen2.5-7b-instruct-q8-greedy -f scripts/ollama/qwen2.5-7b-q8-greedy.Modelfile
+#
+# Cache LLM lấy khoá theo tên model chứ không theo tham số lấy mẫu, nên đổi tham số nào ở
+# đây thì phải đổi cả tên model.
+
+FROM qwen2.5:7b-instruct-q8_0
+PARAMETER num_ctx 16384
+PARAMETER repeat_penalty 1.0

@@ -196,3 +196,53 @@ REANSWER_PROMPT_VI = [
     {"role": "assistant", "content": "Columbia Records Inc."},
     {"role": "user", "content": "Câu hỏi: ${question}\nTrả lời: ${response}"},
 ]
+
+#  Bản tiếng Anh, dùng khi dữ liệu là tiếng Anh (--lang en). Dùng bản tiếng Việt cho câu
+#  hỏi tiếng Anh thì mô hình có thể dịch đáp án sang tiếng Việt, và quy tắc đúng/sai lại đòi
+#  "đúng"/"không", trong khi bài báo gốc rút gọn đáp án bằng prompt tiếng Anh.
+REANSWER_PROMPT_EN = [
+    {
+        "role": "system",
+        "content": (
+            "You are given a question and a long-winded response from another model. "
+            "Extract EXACTLY the shortest phrase that answers the question.\n"
+            "Rules:\n"
+            "- Do not repeat the subject or any part of the question.\n"
+            '- For "how many" questions, return only the NUMBER, without the unit noun '
+            '(for example "2", not "2 times"; "55", not "55 federations").\n'
+            '- For yes/no questions, return exactly one word: "yes" or "no".\n'
+            "- For proper names, keep the EXACT spelling used in the context, including "
+            'suffixes such as "F.C." and "Inc.", and keep the capitalisation.\n'
+            "- Do not add trailing punctuation or any explanation.\n"
+            f'- If the response says there is no answer, output exactly "{REFUSAL_EN}".'
+        ),
+    },
+    {
+        "role": "user",
+        "content": (
+            "Question: The One Pillar Pagoda is located in the capital of which country?\n"
+            "Response: Thought: The One Pillar Pagoda is in Hanoi, and Hanoi is the capital "
+            "of Vietnam. Answer: The One Pillar Pagoda is located in the capital of Vietnam."
+        ),
+    },
+    {"role": "assistant", "content": "Vietnam"},
+    {
+        "role": "user",
+        "content": (
+            "Question: How many times has the French national team won the World Cup?\n"
+            "Response: Thought: France won the World Cup in 1998 and 2018. "
+            "Answer: The French national team has won it 2 times."
+        ),
+    },
+    {"role": "assistant", "content": "2"},
+    {
+        "role": "user",
+        "content": (
+            "Question: Which label released that single?\n"
+            "Response: Thought: The facts say the single was released by Columbia Records "
+            "Inc. Answer: The single was released by the label Columbia Records Inc."
+        ),
+    },
+    {"role": "assistant", "content": "Columbia Records Inc."},
+    {"role": "user", "content": "Question: ${question}\nResponse: ${response}"},
+]

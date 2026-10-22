@@ -177,6 +177,31 @@ def test_hallucinated_triple_is_rejected():
     assert result.core_triples == [], f"đã nhận nhầm triple bịa: {result.core_triples}"
 
 
+def test_official_rescue_recovers_triple_cited_in_thought():
+    """Mô hình trích triple trong suy luận nhưng ghi danh sách rỗng: bản gốc vớt lại được."""
+    response = step(
+        'Tác giả là Nguyễn Du (["Truyện Kiều", "được sáng tác bởi", "Nguyễn Du"]).',
+        '{"fact": []}',
+        "<no question>",
+    )
+    plain = IterativeConstructionIntegration(build_retriever(), ScriptedLLM([response]))
+    assert plain.run("Ai viết Truyện Kiều?").core_triples == []
+
+    rescued = IterativeConstructionIntegration(
+        build_retriever(), ScriptedLLM([response]), official_rescue=True
+    ).run("Ai viết Truyện Kiều?")
+    assert ("Truyện Kiều", "được sáng tác bởi", "Nguyễn Du") in rescued.core_triples
+
+
+def test_official_rescue_falls_back_to_top_candidate():
+    """Tập lõi rỗng và suy luận không trích gì: lấy đúng một ứng viên xếp hạng cao nhất."""
+    llm = ScriptedLLM([step("Không thấy gì.", '{"fact": []}', "<no question>")])
+    result = IterativeConstructionIntegration(
+        build_retriever(), llm, official_rescue=True
+    ).run("Nguyễn Du sinh năm nào?")
+    assert len(result.core_triples) == 1
+
+
 # ------------------------------------------------------------------- ACMG
 
 

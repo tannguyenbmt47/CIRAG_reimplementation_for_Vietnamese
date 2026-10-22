@@ -17,7 +17,13 @@ from dataclasses import dataclass
 from string import Template
 from typing import TYPE_CHECKING
 
-from .prompts_vi.acmg import REANSWER_PROMPT_VI, REFUSAL_EN, REFUSAL_VI, build_acmg_prompt
+from .prompts_vi.acmg import (
+    REANSWER_PROMPT_EN,
+    REANSWER_PROMPT_VI,
+    REFUSAL_EN,
+    REFUSAL_VI,
+    build_acmg_prompt,
+)
 
 if TYPE_CHECKING:
     from .ici import ICIResult
@@ -49,7 +55,7 @@ def extract_answer(text: str) -> str:
     return lines[-1] if lines else ""
 
 
-def reanswer(llm: "OpenRouterLLM", question: str, response: str) -> str:
+def reanswer(llm: "OpenRouterLLM", question: str, response: str, lang: str = "vi") -> str:
     """Rút gọn 'Suy luận... Đáp án...' thành đúng cụm đáp án ngắn.
 
     Rất quan trọng với EM: mô hình tiếng Việt hay trả lời thành câu đầy đủ
@@ -59,8 +65,12 @@ def reanswer(llm: "OpenRouterLLM", question: str, response: str) -> str:
     Hàm này để ở mức module chứ không nằm trong ACMG, để CẢ baseline cũng dùng
     được. Nếu chỉ CiRAG được chuẩn hoá đáp án còn baseline thì không, phần chênh
     lệch EM sẽ lẫn cả công của việc định dạng đáp án — so sánh mất công bằng.
+
+    Chỉ dùng prompt tiếng Anh khi ``lang="en"``. Biến thể ``en-vi`` chạy prompt tiếng
+    Anh trên dữ liệu tiếng Việt, nên đáp án vẫn phải rút gọn theo tiếng Việt.
     """
-    messages = [dict(m) for m in REANSWER_PROMPT_VI]
+    template = REANSWER_PROMPT_EN if lang == "en" else REANSWER_PROMPT_VI
+    messages = [dict(m) for m in template]
     messages[-1]["content"] = Template(messages[-1]["content"]).safe_substitute(
         question=question, response=response
     )
@@ -148,7 +158,7 @@ class AdaptiveCascadedGeneration:
         return response, context
 
     def _reanswer(self, question: str, response: str) -> str:
-        return reanswer(self.llm, question, response)
+        return reanswer(self.llm, question, response, lang=self.lang)
 
     # ------------------------------------------------ điều kiện đủ theo số nguồn
     def _spans_enough_docs(self, ici: ICIResult) -> bool:

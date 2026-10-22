@@ -38,6 +38,9 @@ class Config:
     temperature: float = 0.0
     max_new_tokens: int | None = 2048
     seed: int = 0
+    #  Cửa sổ ngữ cảnh của server local, để phát hiện prompt có thể bị cắt
+    #  (xem `OpenRouterLLM`). None khi dùng OpenRouter: provider báo lỗi thay vì cắt.
+    context_window: int | None = None
 
     # ----- Embedding / truy hồi -----
     embedding_model_name: str = "AITeamVN/Vietnamese_Embedding"
@@ -55,6 +58,14 @@ class Config:
 
     #  w/o reranker: dùng toàn bộ triple của top-K doc thay vì lấy top-N.
     use_triple_reranker: bool = True
+
+    #  "official" = chữ thường và bỏ ký tự đặc biệt khỏi triple như repo gốc. Chỉ dùng cho
+    #  tiếng Anh; "none" giữ nguyên văn, bắt buộc với tiếng Việt để không mất dấu.
+    triple_norm: str = "none"
+
+    #  Hai cơ chế cứu tập core triple có trong mã nguồn gốc nhưng không có trong bài báo
+    #  (xem `IterativeConstructionIntegration._official_rescue`). Tắt = đúng Eq. 1.
+    official_rescue: bool = False
 
     # ----- ACMG -----
     #  Chuỗi mức ngữ cảnh, theo thứ tự mở rộng G = (g_C, g_S, g_D).
@@ -91,8 +102,15 @@ class Config:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     @property
+    def is_local_llm(self) -> bool:
+        return any(h in self.llm_base_url for h in ("localhost", "127.0.0.1", "[::1]"))
+
+    @property
     def api_key(self) -> str:
         key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not key and self.is_local_llm:
+            #  Ollama không kiểm khoá, nhưng SDK OpenAI bắt buộc phải truyền một chuỗi.
+            return "local"
         if not key:
             raise RuntimeError(
                 "Thiếu OPENROUTER_API_KEY. Tạo file .env từ .env.example "
