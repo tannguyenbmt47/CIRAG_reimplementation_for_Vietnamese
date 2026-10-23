@@ -164,7 +164,7 @@ src/vicirag/
   llm/openrouter.py OpenRouter client with a per-model SQLite cache
 
 scripts/            data preparation, experiment runner, result tables, figures
-tests/              42 tests, no GPU and no API calls
+tests/              40 tests, no GPU and no API calls
 report/             the two report PDFs, Vietnamese and English
 ```
 
